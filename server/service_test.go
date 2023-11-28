@@ -258,6 +258,35 @@ func TestRegisterValidator(t *testing.T) {
 		require.Equal(t, 3, backend.relays[1].GetRequestCount(path))
 	})
 
+	t.Run("One of many relays returns error response", func(t *testing.T) {
+		backend := newTestBackend(t, 4, time.Second)
+
+		backend.relays[0].ResponseDelay = 5 * time.Millisecond
+		backend.relays[1].ResponseDelay = 5 * time.Millisecond
+		backend.relays[2].ResponseDelay = 5 * time.Millisecond
+		backend.relays[3].ResponseDelay = 5 * time.Millisecond
+
+		rr := backend.request(t, http.MethodPost, path, payload)
+		require.Equal(t, http.StatusOK, rr.Code)
+		require.Equal(t, 1, backend.relays[0].GetRequestCount(path))
+		require.Equal(t, 1, backend.relays[1].GetRequestCount(path))
+		require.Equal(t, 1, backend.relays[2].GetRequestCount(path))
+		require.Equal(t, 1, backend.relays[3].GetRequestCount(path))
+
+		// Now make one relay return garbage
+		backend.relays[2].overrideHandleRegisterValidator(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			fmt.Fprintf(w, `{'akdlaskjdqlkwjeqlwkejqwlkejqlwkj`)
+		})
+		rr = backend.request(t, http.MethodPost, path, payload)
+		require.Equal(t, http.StatusOK, rr.Code)
+		require.Equal(t, 2, backend.relays[0].GetRequestCount(path))
+		require.Equal(t, 2, backend.relays[1].GetRequestCount(path))
+		require.Equal(t, 2, backend.relays[2].GetRequestCount(path))
+		require.Equal(t, 2, backend.relays[3].GetRequestCount(path))
+	})
+
 	t.Run("mev-boost relay timeout works with slow relay", func(t *testing.T) {
 		backend := newTestBackend(t, 1, 150*time.Millisecond) // 10ms max
 		rr := backend.request(t, http.MethodPost, path, payload)
